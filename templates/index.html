@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>音声認識アプリ</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .container {
+            border: 1px solid #ddd;
+            padding: 20px;
+            border-radius: 5px;
+        }
+
+        .result-container {
+            margin-top: 30px;
+            border: 1px solid #ddd;
+            padding: 20px;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 15px;
+            width: 100%;
+            font-size: 16px;
+            height: 44px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input[type="text"],
+        input[type="datetime-local"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        input[type="file"] {
+            font-size: 16px;
+            padding: 10px 0;
+            width: 100%;
+            min-height: 44px;
+        }
+
+        .error {
+            color: #d32f2f;
+            background-color: #ffebee;
+            border: 1px solid #ffcdd2;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+
+        .file-info {
+            margin-top: 5px;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 2s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>音声認識アプリ</h1>
+        <p>音声ファイルをアップロードして、文字起こしを行います。</p>
+
+        <!-- 入力フォーム -->
+        <form id="uploadForm">
+            <div class="form-group">
+                <label for="meeting-title">タイトル:</label>
+                <input type="text" id="meeting-title" name="title" required>
+            </div>
+
+            <div class="form-group">
+                <label for="meeting-datetime">日時:</label>
+                <input type="datetime-local" id="meeting-datetime" name="datetime" required>
+            </div>
+
+            <div class="form-group">
+                <label for="audioFile">音声ファイルを選択:</label>
+                <input type="file" id="audioFile" name="audio" accept=".mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm" required>
+                <div class="file-info">
+                    対応形式: .mp3, .mp4, .mpeg, .mpga, .m4a, .wav, .webm<br>
+                    最大サイズ: 25MB
+                </div>
+            </div>
+
+            <button type="submit" id="submitBtn">アップロード</button>
+        </form>
+
+        <!-- ローディングアイコン -->
+        <div id="loader" class="loader"></div>
+
+        <!-- 結果表示エリア -->
+        <div id="resultContainer" class="result-container" style="display: none;">
+            <h2>文字起こし結果</h2>
+            <div id="resultTitle"></div>
+            <div id="resultDatetime"></div>
+            <hr>
+            <div id="resultContent"></div>
+        </div>
+    </div>
+
+    <script>
+        // 現在の日時をデフォルト値として設定
+        window.onload = function () {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+
+            document.getElementById('meeting-datetime').value =
+                `${year}-${month}-${day}T${hours}:${minutes}`;
+        };
+
+        // フォーム送信処理
+        document.getElementById('uploadForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            const fileInput = document.getElementById('audioFile');
+            const file = fileInput.files[0];
+
+            // ファイル選択チェック
+            if (!file) {
+                showError("ファイルを選択してください");
+                return;
+            }
+
+            // ファイルサイズチェック
+            if (file.size > 25 * 1024 * 1024) {
+                showError("ファイルサイズが25MBを超えています");
+                return;
+            }
+
+            // フォームデータの作成
+            const formData = new FormData();
+            formData.append('title', document.getElementById('meeting-title').value);
+            formData.append('datetime', document.getElementById('meeting-datetime').value);
+            formData.append('audio', file);
+
+            // 送信ボタンを無効化
+            document.getElementById('submitBtn').disabled = true;
+
+            // ローディングアイコンを表示
+            document.getElementById('loader').style.display = 'block';
+
+            // 結果表示エリアを隠す
+            document.getElementById('resultContainer').style.display = 'none';
+
+            // エラー表示をクリア
+            clearError();
+
+            // リクエスト送信
+            fetch('/transcription', {
+                method: 'POST',
+                body: formData
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(data => {
+                            throw new Error(data.error || 'サーバーエラーが発生しました');
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // ローディングアイコンを非表示
+                    document.getElementById('loader').style.display = 'none';
+
+                    // 送信ボタンを再有効化
+                    document.getElementById('submitBtn').disabled = false;
+
+                    // エラーチェック
+                    if (data.error) {
+                        showError(data.error);
+                        return;
+                    }
+
+                    // 結果表示
+                    displayResult(data);
+                })
+                .catch(error => {
+                    // ローディングアイコンを非表示
+                    document.getElementById('loader').style.display = 'none';
+
+                    // 送信ボタンを再有効化
+                    document.getElementById('submitBtn').disabled = false;
+
+                    // エラー表示
+                    showError(error.message);
+                });
+        });
+
+        // 結果表示関数
+        function displayResult(data) {
+            document.getElementById('resultTitle').innerHTML = `<strong>タイトル:</strong> ${data.title || ''}`;
+            document.getElementById('resultDatetime').innerHTML = `<strong>日時:</strong> ${data.datetime || ''}`;
+
+            // 文字起こし結果
+            if (data.transcription) {
+                try {
+                    // JSONとしてパースできるか試す（エラーメッセージの場合）
+                    const jsonObj = JSON.parse(data.transcription);
+                    if (jsonObj.error) {
+                        document.getElementById('resultContent').innerHTML =
+                            `<div class="error">エラー: ${jsonObj.error.message || 'Unknown error'}</div>`;
+                    } else {
+                        document.getElementById('resultContent').textContent = data.transcription;
+                    }
+                } catch (e) {
+                    // 通常のテキスト
+                    document.getElementById('resultContent').textContent = data.transcription;
+                }
+            } else {
+                document.getElementById('resultContent').innerHTML = '<div class="error">文字起こし結果が見つかりません</div>';
+            }
+
+            // 結果表示エリアを表示
+            document.getElementById('resultContainer').style.display = 'block';
+        }
+
+        // エラー表示関数
+        function showError(message) {
+            // 既存のエラーメッセージを削除
+            clearError();
+
+            // 新しいエラー要素を作成
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.id = 'errorMessage';
+            errorDiv.textContent = message;
+
+            // アップロードボタンの後に挿入
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.parentNode.insertBefore(errorDiv, submitBtn.nextSibling);
+        }
+
+        // エラー表示をクリア
+        function clearError() {
+            const existingError = document.getElementById('errorMessage');
+            if (existingError) {
+                existingError.remove();
+            }
+        }
+    </script>
+</body>
+
+</html>
